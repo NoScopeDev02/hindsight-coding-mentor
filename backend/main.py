@@ -1,4 +1,5 @@
 import os
+import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -9,7 +10,7 @@ from groq import Groq
 # Load environment variables
 load_dotenv()
 
-app = FastAPI(title="Hindsight AI Coding Practice Mentor")
+app = FastAPI(title="Avinya Code | Persistent Cognitive Mentor")
 
 # Enable CORS
 app.add_middleware(
@@ -25,9 +26,6 @@ HINDSIGHT_API_KEY = os.getenv("HINDSIGHT_API_KEY")
 BANK_ID = os.getenv("HINDSIGHT_BANK_ID")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-if not all([HINDSIGHT_API_KEY, BANK_ID, GROQ_API_KEY]):
-    print("WARNING: Missing environment variables. Please check your .env file.")
-
 hindsight = Hindsight(
     api_key=HINDSIGHT_API_KEY, 
     base_url="https://api.hindsight.vectorize.io"
@@ -36,23 +34,32 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 
 class ChatRequest(BaseModel):
     user_msg: str
+    dimension: str = "core" # Default dimension
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
     user_msg = request.user_msg
+    dim = request.dimension.lower()
 
     try:
-        # 1. Recall past memories/mistakes using the ASYNC method 'arecall'
-        recalled_facts = await hindsight.arecall(bank_id=BANK_ID, query=user_msg)
+        # 1. Recall past memories for the specific dimension/tag first
+        # We use 'any' match for the dimension tag.
+        recalled_facts = await hindsight.arecall(
+            bank_id=BANK_ID, 
+            query=user_msg, 
+            tags=[dim]
+        )
         
+        # If no local dimension matches, perform a 'Global Search' (all tags)
+        if not recalled_facts or len(recalled_facts) == 0:
+            recalled_facts = await hindsight.arecall(bank_id=BANK_ID, query=user_msg)
+
         # Format context for Groq
         context = ""
         facts_list = []
         if recalled_facts:
-            # recalled_facts might be a RecallResponse object, checking if it's iterable
-            # LIMIT to top 5 facts to avoid token limit errors
             facts_list = [str(f) for f in recalled_facts][:5]
-            context = "Context from past sessions:\n" + "\n".join(facts_list)
+            context = f"Context from past sessions [{dim.upper()}]:\n" + "\n".join(facts_list)
 
         # 2. Generate advice using Groq
         system_prompt = (
@@ -77,8 +84,12 @@ async def chat(request: ChatRequest):
         
         mentor_response = chat_completion.choices[0].message.content
 
-        # 3. Retain current turn using the ASYNC method 'aretain'
-        await hindsight.aretain(bank_id=BANK_ID, content=f"User: {user_msg}\nMentor: {mentor_response}")
+        # 3. Retain current turn with the dimension tag
+        await hindsight.aretain(
+            bank_id=BANK_ID, 
+            content=f"User: {user_msg}\nMentor: {mentor_response}",
+            tags=[dim]
+        )
 
         return {
             "mentor_message": mentor_response,
@@ -87,22 +98,28 @@ async def chat(request: ChatRequest):
 
     except Exception as e:
         print(f"Error in chat endpoint: {e}")
-        # Log more details if possible
         import traceback
         traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/memory")
+async def get_memory(dimension: str = "core"):
+    try:
+        # Fetch facts for the specific dimension to refresh the sidebar
+        recalled = await hindsight.arecall(bank_id=BANK_ID, query="summarize progress", tags=[dimension.lower()])
+        facts_list = [str(f) for f in recalled]
+        return {"recalled_facts": facts_list}
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/memory")
 async def clear_memory():
     try:
-        # Based on the earlier inspect output, the Hindsight client has 'adelete_bank' and 'acreate_bank'
         await hindsight.adelete_bank(bank_id=BANK_ID)
         await hindsight.acreate_bank(bank_id=BANK_ID)
         return {"status": "success", "message": "Memory bank cleared and reset."}
     except Exception as e:
         print(f"Error clearing memory: {e}")
-        import traceback
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

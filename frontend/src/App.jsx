@@ -5,11 +5,20 @@ import MemoryBadge from './components/MemoryBadge';
 
 function App() {
   const [messages, setMessages] = useState([
-    { role: 'mentor', content: "Hello! I'm Avinya Coding Mentor. What are we working on today?" }
+    { role: 'mentor', content: "Hello! I'm your Avinya Code Mentor. What are we working on today?" }
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [recalledFacts, setRecalledFacts] = useState([]);
+  const [dimension, setDimension] = useState('core');
+  
+  // Dynamic Dimensions State
+  const [dimensions, setDimensions] = useState([
+    { id: 'scandine', label: 'Scandine', color: 'bg-blue-500', border: 'border-blue-500/30', text: 'text-blue-400' },
+    { id: 'core', label: 'Core Engineering', color: 'bg-purple-500', border: 'border-purple-500/30', text: 'text-purple-400' },
+    { id: 'arch', label: 'System Arch', color: 'bg-orange-500', border: 'border-orange-500/30', text: 'text-orange-400' },
+  ]);
+
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -18,12 +27,49 @@ function App() {
 
   useEffect(scrollToBottom, [messages]);
 
+  // Fetch memory facts when dimension changes
+  useEffect(() => {
+    const fetchDimensionMemory = async () => {
+      try {
+        const response = await fetch(`http://localhost:8000/memory?dimension=${dimension}`);
+        const data = await response.json();
+        setRecalledFacts(data.recalled_facts || []);
+      } catch (error) {
+        console.error("Error fetching dimension memory:", error);
+      }
+    };
+    fetchDimensionMemory();
+  }, [dimension]);
+
+  const handleAddDimension = (newDim) => {
+    if (dimensions.find(d => d.id === newDim.toLowerCase())) return;
+    const colors = ['bg-pink-500', 'bg-cyan-500', 'bg-yellow-500', 'bg-indigo-500'];
+    const randomColor = colors[Math.floor(Math.random() * colors.length)];
+    
+    const dimObj = {
+      id: newDim.toLowerCase().replace(/\s+/g, '-'),
+      label: newDim,
+      color: randomColor,
+      border: `border-${randomColor.split('-')[1]}-500/30`,
+      text: `text-${randomColor.split('-')[1]}-400`
+    };
+    setDimensions([...dimensions, dimObj]);
+    setDimension(dimObj.id);
+  };
+
+  const handleDeleteDimension = (dimId) => {
+    if (dimensions.length <= 1) return;
+    const filtered = dimensions.filter(d => d.id !== dimId);
+    setDimensions(filtered);
+    if (dimension === dimId) setDimension(filtered[0].id);
+  };
+
   const handleClearMemory = async () => {
-    if (!window.confirm("Are you sure you want to clear your memory bank? This cannot be undone.")) return;
+    if (!window.confirm("Are you sure you want to clear your ENTIRE memory bank? All dimensions will be wiped. This cannot be undone.")) return;
     try {
       await fetch('http://localhost:8000/memory', { method: 'DELETE' });
       setRecalledFacts([]);
-      alert("Memory cleared!");
+      alert("Memory bank fully reset!");
     } catch (error) {
       console.error("Error clearing memory:", error);
     }
@@ -42,7 +88,7 @@ function App() {
       const response = await fetch('http://localhost:8000/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_msg: userMsg }),
+        body: JSON.stringify({ user_msg: userMsg, dimension: dimension }),
       });
 
       const data = await response.json();
@@ -59,7 +105,16 @@ function App() {
 
   return (
     <div className="flex h-screen bg-dark-900 text-white font-sans">
-      <Sidebar facts={recalledFacts} onClear={handleClearMemory} isRecalling={loading} />
+      <Sidebar 
+        facts={recalledFacts} 
+        onClear={handleClearMemory} 
+        isRecalling={loading} 
+        dimension={dimension}
+        setDimension={setDimension}
+        dimensions={dimensions}
+        onAddDimension={handleAddDimension}
+        onDeleteDimension={handleDeleteDimension}
+      />
       
       <main className="flex-1 flex flex-col relative">
         <header className="h-16 border-b border-dark-700 flex items-center justify-between px-8 bg-dark-900/50 backdrop-blur-sm z-10 sticky top-0">
@@ -107,7 +162,7 @@ function App() {
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Type your coding question or challenge..."
+              placeholder={`Ask about ${dimensions.find(d => d.id === dimension)?.label}...`}
               className="w-full bg-dark-800 border border-dark-700 rounded-xl px-6 py-4 pr-16 focus:outline-none focus:border-hindsight-green transition-colors text-white placeholder-gray-500"
             />
             <button 
