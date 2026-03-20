@@ -40,36 +40,65 @@ class ChatRequest(BaseModel):
 async def chat(request: ChatRequest):
     user_msg = request.user_msg
     dim = request.dimension.lower()
+    
+    # Map friendly dimension IDs to storage tags
+    tag_map = {
+        "scandine": "SaaS_Scandine",
+        "core": "Python_Core",
+        "arch": "System_Design"
+    }
+    dim_tag = tag_map.get(dim, f"Dim_{dim}")
 
     try:
-        # 1. Recall past memories for the specific dimension/tag first
-        # We use 'any' match for the dimension tag.
-        recalled_facts = await hindsight.arecall(
+        # 1. Multi-Dimensional Recall
+        # Priority 1: Current Dimension
+        local_recalled = await hindsight.arecall(
             bank_id=BANK_ID, 
             query=user_msg, 
-            tags=[dim]
+            tags=[dim_tag]
         )
         
-        # If no local dimension matches, perform a 'Global Search' (all tags)
-        if not recalled_facts or len(recalled_facts) == 0:
-            recalled_facts = await hindsight.arecall(bank_id=BANK_ID, query=user_msg)
+        # Priority 2: Global Context (All dimensions) for cross-pollination
+        global_recalled = await hindsight.arecall(bank_id=BANK_ID, query=user_msg)
 
-        # Format context for Groq
-        context = ""
-        facts_list = []
-        if recalled_facts:
-            facts_list = [str(f) for f in recalled_facts][:5]
-            context = f"Context from past sessions [{dim.upper()}]:\n" + "\n".join(facts_list)
+        # 2. Advanced Context Grouping
+        # We'll filter global results to see what happened in OTHER dimensions if the user asks about history
+        is_history_query = any(word in user_msg.lower() for word in ["previous error", "past mistake", "history", "what did i do", "remember"])
+        
+        context_blocks = []
+        if local_recalled:
+            local_facts = [str(f) for f in local_recalled][:5]
+            context_blocks.append(f"--- CURRENT DIMENSION [{dim_tag.upper()}] MEMORIES ---\n" + "\n".join(local_facts))
+        
+        if is_history_query and global_recalled:
+            # Group global facts by their tags to prevent 'Mental Clutter'
+            other_dims = {}
+            for fact in global_recalled:
+                # fact is a RecallResult, checking if it has tags
+                ftags = getattr(fact, 'tags', [])
+                if ftags:
+                    tag = ftags[0]
+                    if tag != dim_tag:
+                        if tag not in other_dims: other_dims[tag] = []
+                        other_dims[tag].append(str(fact))
+            
+            if other_dims:
+                context_blocks.append("\n--- CROSS-DIMENSION CONTEXT (OTHER VAULTS) ---")
+                for tag, facts in other_dims.items():
+                    context_blocks.append(f"In {tag.replace('_', ' ')}, you encountered:\n" + "\n".join(facts[:2]))
 
-        # 2. Generate advice using Groq
+        context = "\n\n".join(context_blocks)
+
+        # 3. Generate advice using Groq
+        dim_name = dim_tag.replace('_', ' ')
         system_prompt = (
-            "You are a supportive peer mentor, not a rigid teacher. Your goal is to guide the user "
-            "through coding challenges with empathy and technical depth. Acknowledge personal projects "
-            "(like Scandine or the Ice Factory) as valid and valuable context for learning. "
-            "Instead of forcing the user back to a specific task, be curious: ask how a new project or "
-            "idea relates to what you've been learning together. Emphasize patterns they've struggled with "
-            "or preferences they've expressed in the past, but always in a collaborative, peer-to-peer tone. "
-            "DO NOT use Markdown, asterisks, or bolding in your responses. Use only plain text and standard spacing."
+            f"You are a supportive peer mentor at Avinya Code. You are currently mentoring in the {dim_name} dimension. "
+            "Your goal is to guide the user with empathy and technical depth. Acknowledge personal projects (like Scandine or the Ice Factory) as valid context. "
+            f"STRICTLY isolate your main response to facts and progress within the {dim_name} dimension. "
+            f"Begin your response or summary by saying: 'In this dimension [{dim_name}], we have achieved...' to reinforce the UI selection. "
+            "If providing a summary, perform a 'Dimension Deep Dive' into the current vault first. "
+            "Only mention other dimensions (like Python Core or System Design) in a small 'Related Insights' section at the very end of your message, rather than mixing them into the main body. "
+            "DO NOT use Markdown, asterisks, or bolding. Use only plain text and standard spacing."
         )
         
         prompt = f"{context}\n\nUser: {user_msg}\nMentor:"
@@ -84,12 +113,15 @@ async def chat(request: ChatRequest):
         
         mentor_response = chat_completion.choices[0].message.content
 
-        # 3. Retain current turn with the dimension tag
+        # 4. Retain with Dimension Tag
         await hindsight.aretain(
             bank_id=BANK_ID, 
             content=f"User: {user_msg}\nMentor: {mentor_response}",
-            tags=[dim]
+            tags=[dim_tag]
         )
+
+        # Final facts list for the sidebar
+        facts_list = [str(f) for f in local_recalled][:10] if local_recalled else []
 
         return {
             "mentor_message": mentor_response,
@@ -105,8 +137,10 @@ async def chat(request: ChatRequest):
 @app.get("/memory")
 async def get_memory(dimension: str = "core"):
     try:
-        # Fetch facts for the specific dimension to refresh the sidebar
-        recalled = await hindsight.arecall(bank_id=BANK_ID, query="summarize progress", tags=[dimension.lower()])
+        tag_map = {"scandine": "SaaS_Scandine", "core": "Python_Core", "arch": "System_Design"}
+        dim_tag = tag_map.get(dimension.lower(), f"Dim_{dimension}")
+        
+        recalled = await hindsight.arecall(bank_id=BANK_ID, query="summarize progress", tags=[dim_tag])
         facts_list = [str(f) for f in recalled]
         return {"recalled_facts": facts_list}
     except Exception as e:

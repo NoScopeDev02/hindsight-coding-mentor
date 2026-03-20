@@ -2,8 +2,10 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, User, Bot, Loader2 } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import MemoryBadge from './components/MemoryBadge';
+import LandingPage from './components/LandingPage';
 
 function App() {
+  const [user, setUser] = useState(null);
   const [messages, setMessages] = useState([
     { role: 'mentor', content: "Hello! I'm your Avinya Code Mentor. What are we working on today?" }
   ]);
@@ -29,6 +31,7 @@ function App() {
 
   // Fetch memory facts when dimension changes
   useEffect(() => {
+    if (!user) return;
     const fetchDimensionMemory = async () => {
       try {
         const response = await fetch(`http://localhost:8000/memory?dimension=${dimension}`);
@@ -39,7 +42,7 @@ function App() {
       }
     };
     fetchDimensionMemory();
-  }, [dimension]);
+  }, [dimension, user]);
 
   const handleAddDimension = (newDim) => {
     if (dimensions.find(d => d.id === newDim.toLowerCase())) return;
@@ -103,6 +106,10 @@ function App() {
     }
   };
 
+  if (!user) {
+    return <LandingPage onLogin={(uid) => setUser(uid)} />;
+  }
+
   return (
     <div className="flex h-screen bg-dark-900 text-white font-sans">
       <Sidebar 
@@ -119,12 +126,21 @@ function App() {
       <main className="flex-1 flex flex-col relative">
         <header className="h-16 border-b border-dark-700 flex items-center justify-between px-8 bg-dark-900/50 backdrop-blur-sm z-10 sticky top-0">
           <div className="flex items-center gap-4">
-            <h1 className="font-bold text-lg">Avinya Code Session</h1>
+            <h1 className="font-bold text-lg italic uppercase tracking-tighter">Avinya Session</h1>
+            <div className="px-3 py-1 rounded-full bg-hindsight-green/10 border border-hindsight-green/20 text-hindsight-green text-[10px] font-bold tracking-widest uppercase">
+              USER: {user}
+            </div>
             <MemoryBadge active={recalledFacts.length > 0} />
           </div>
+          <button 
+            onClick={() => setUser(null)}
+            className="text-[10px] font-bold text-gray-500 hover:text-white transition-colors uppercase tracking-widest"
+          >
+            Logout
+          </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-8 space-y-6">
+        <div className="flex-1 overflow-y-auto p-8 space-y-6 custom-scrollbar">
           {messages.map((msg, i) => (
             <div key={i} className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div className={`flex gap-4 max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -135,7 +151,7 @@ function App() {
                 </div>
                 <div className={`p-4 rounded-2xl ${
                   msg.role === 'user' 
-                    ? 'bg-blue-600 text-white' 
+                    ? 'bg-blue-600 text-white shadow-xl shadow-blue-500/10' 
                     : 'bg-dark-800 border border-dark-700'
                 }`}>
                   <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
@@ -144,12 +160,12 @@ function App() {
             </div>
           ))}
           {loading && (
-            <div className="flex gap-4 justify-start">
+            <div className="flex gap-4 justify-start animate-in fade-in duration-500">
               <div className="w-8 h-8 rounded-full bg-hindsight-green/20 border border-hindsight-green flex items-center justify-center">
                 <Loader2 size={18} className="text-hindsight-green animate-spin" />
               </div>
               <div className="bg-dark-800 border border-dark-700 p-4 rounded-2xl italic text-gray-400 text-sm">
-                Recalling and thinking...
+                Accessing Vault...
               </div>
             </div>
           )}
@@ -174,7 +190,7 @@ function App() {
             </button>
           </form>
           <p className="text-center text-xs text-gray-500 mt-4 uppercase tracking-tighter">
-            Powered by Groq & Hindsight Memory
+            Powered by Groq & Hindsight Memory | Production Ready
           </p>
         </footer>
       </main>

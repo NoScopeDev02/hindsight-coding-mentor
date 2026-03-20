@@ -68,6 +68,19 @@ npm run dev
 
 ---
 
+## 🚀 Future Scalability & Production Roadmap
+
+### Firebase Blueprint
+Avinya Code is architected for seamless multi-tenant deployment. While the current version uses a mock `user_id` system ('Harshal_COE'), the frontend state management is designed to hook directly into **Firebase Auth**.
+- **Multi-Tenancy**: By replacing the mock login with Firebase, the `user_id` will dynamically drive the Hindsight `bank_id` or `tag` filtering, ensuring total data isolation between students.
+- **Saraswati College Deployment**: The platform is optimized for deployment across campus, allowing hundreds of students to maintain their own unique Cognitive Trace vaults for various subjects (Python, DBMS, System Design).
+
+### Planned Features
+- **Voice-Enabled Mentorship**: Integration with Groq's high-speed Whisper implementation.
+- **Auto-Grading Integration**: Syncing the Skill Radar with actual GitHub repository contributions.
+
+---
+
 ## 📜 Credits & Acknowledgments
 
 - **Developer**: [Harshal Ghadge](https://github.com/NoScopeDev02)
