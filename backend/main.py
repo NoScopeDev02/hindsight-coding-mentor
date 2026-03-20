@@ -26,6 +26,9 @@ HINDSIGHT_API_KEY = os.getenv("HINDSIGHT_API_KEY")
 BANK_ID = os.getenv("HINDSIGHT_BANK_ID")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
+print(f"DEBUG: HINDSIGHT_API_KEY starts with: {HINDSIGHT_API_KEY[:10] if HINDSIGHT_API_KEY else 'NONE'}")
+print(f"DEBUG: BANK_ID: {BANK_ID}")
+
 hindsight = Hindsight(
     api_key=HINDSIGHT_API_KEY, 
     base_url="https://api.hindsight.vectorize.io"
@@ -45,59 +48,43 @@ async def chat(request: ChatRequest):
     tag_map = {
         "scandine": "SaaS_Scandine",
         "core": "Python_Core",
-        "arch": "System_Design"
+        "arch": "System_Design",
+        "dsa": "Data_Structures_Algo"
     }
     dim_tag = tag_map.get(dim, f"Dim_{dim}")
+    dim_name = dim_tag.replace('_', ' ')
 
     try:
-        # 1. Multi-Dimensional Recall
-        # Priority 1: Current Dimension
-        local_recalled = await hindsight.arecall(
+        # 1. STRICT Dimensional Recall
+        # We perform a strict tag search to ensure zero "context bleed" from other vaults.
+        # We do NOT perform a global search unless the user specifically asks for it.
+        recalled_facts = await hindsight.arecall(
             bank_id=BANK_ID, 
             query=user_msg, 
-            tags=[dim_tag]
+            tags=[dim_tag],
+            tags_match="all_strict" # Force strict matching on the dimension tag
         )
         
-        # Priority 2: Global Context (All dimensions) for cross-pollination
-        global_recalled = await hindsight.arecall(bank_id=BANK_ID, query=user_msg)
+        # 2. Advanced Context Handling
+        context = ""
+        facts_list = []
+        is_fresh_dimension = False
 
-        # 2. Advanced Context Grouping
-        # We'll filter global results to see what happened in OTHER dimensions if the user asks about history
-        is_history_query = any(word in user_msg.lower() for word in ["previous error", "past mistake", "history", "what did i do", "remember"])
-        
-        context_blocks = []
-        if local_recalled:
-            local_facts = [str(f) for f in local_recalled][:5]
-            context_blocks.append(f"--- CURRENT DIMENSION [{dim_tag.upper()}] MEMORIES ---\n" + "\n".join(local_facts))
-        
-        if is_history_query and global_recalled:
-            # Group global facts by their tags to prevent 'Mental Clutter'
-            other_dims = {}
-            for fact in global_recalled:
-                # fact is a RecallResult, checking if it has tags
-                ftags = getattr(fact, 'tags', [])
-                if ftags:
-                    tag = ftags[0]
-                    if tag != dim_tag:
-                        if tag not in other_dims: other_dims[tag] = []
-                        other_dims[tag].append(str(fact))
-            
-            if other_dims:
-                context_blocks.append("\n--- CROSS-DIMENSION CONTEXT (OTHER VAULTS) ---")
-                for tag, facts in other_dims.items():
-                    context_blocks.append(f"In {tag.replace('_', ' ')}, you encountered:\n" + "\n".join(facts[:2]))
-
-        context = "\n\n".join(context_blocks)
+        if recalled_facts and len(recalled_facts) > 0:
+            facts_list = [str(f) for f in recalled_facts][:5]
+            context = f"--- STRICT VAULT: [{dim_name.upper()}] ---\n" + "\n".join(facts_list)
+        else:
+            is_fresh_dimension = True
+            context = f"--- SYSTEM NOTICE ---\nThis is a fresh dimension with no existing trace. Inform the user that we are starting from scratch for {dim_name}."
 
         # 3. Generate advice using Groq
-        dim_name = dim_tag.replace('_', ' ')
         system_prompt = (
-            f"You are a supportive peer mentor at Avinya Code. You are currently mentoring in the {dim_name} dimension. "
-            "Your goal is to guide the user with empathy and technical depth. Acknowledge personal projects (like Scandine or the Ice Factory) as valid context. "
-            f"STRICTLY isolate your main response to facts and progress within the {dim_name} dimension. "
-            f"Begin your response or summary by saying: 'In this dimension [{dim_name}], we have achieved...' to reinforce the UI selection. "
-            "If providing a summary, perform a 'Dimension Deep Dive' into the current vault first. "
-            "Only mention other dimensions (like Python Core or System Design) in a small 'Related Insights' section at the very end of your message, rather than mixing them into the main body. "
+            f"You are a supportive peer mentor at Avinya Code. You are currently working strictly within the {dim_name} dimension. "
+            "Pedagogical Rules:\n"
+            f"1. STRICT ISOLATION: Do not reference, summarize, or bridge concepts from other dimensions (like SaaS or Arch) into this {dim_name} session. "
+            "2. FRESH START: If there are no recalled memories, you MUST say: 'This is a fresh dimension. Let's start building your " + dim_name + " knowledge base from scratch.' "
+            "3. NO CONTEXT BLEED: Do not allow concepts from one language/pattern to bleed into another unless the user asks for a comparison. "
+            f"4. REINFORCEMENT: Always start with 'In this dimension [{dim_name}], we have achieved...' (or a variation if it's fresh). "
             "DO NOT use Markdown, asterisks, or bolding. Use only plain text and standard spacing."
         )
         
@@ -120,9 +107,6 @@ async def chat(request: ChatRequest):
             tags=[dim_tag]
         )
 
-        # Final facts list for the sidebar
-        facts_list = [str(f) for f in local_recalled][:10] if local_recalled else []
-
         return {
             "mentor_message": mentor_response,
             "recalled_facts": facts_list
@@ -137,14 +121,15 @@ async def chat(request: ChatRequest):
 @app.get("/memory")
 async def get_memory(dimension: str = "core"):
     try:
-        tag_map = {"scandine": "SaaS_Scandine", "core": "Python_Core", "arch": "System_Design"}
+        tag_map = {"scandine": "SaaS_Scandine", "core": "Python_Core", "arch": "System_Design", "dsa": "Data_Structures_Algo"}
         dim_tag = tag_map.get(dimension.lower(), f"Dim_{dimension}")
         
         recalled = await hindsight.arecall(bank_id=BANK_ID, query="summarize progress", tags=[dim_tag])
-        facts_list = [str(f) for f in recalled]
+        facts_list = [str(f) for f in recalled] if recalled else []
         return {"recalled_facts": facts_list}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error in get_memory: {e}")
+        return {"recalled_facts": []} # Return empty list on error instead of 500
 
 @app.delete("/memory")
 async def clear_memory():

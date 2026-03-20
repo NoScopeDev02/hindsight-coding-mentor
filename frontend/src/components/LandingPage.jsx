@@ -77,7 +77,7 @@ const LandingPage = ({ onLogin }) => {
       <footer className="border-t border-white/5 py-12">
         <div className="max-w-7xl mx-auto px-8 flex justify-between items-center opacity-40">
           <span className="text-[10px] font-bold uppercase tracking-widest italic">Avinya Code // Production-Ready Alpha</span>
-          <span className="text-[10px] font-bold uppercase tracking-widest italic">Saraswati College of Engineering</span>
+          <span className="text-[10px] font-bold uppercase tracking-widest italic"></span>
         </div>
       </footer>
     </div>
