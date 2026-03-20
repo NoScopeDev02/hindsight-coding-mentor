@@ -19,7 +19,7 @@ const LandingPage = ({ onLogin }) => {
           <span className="text-xl font-black tracking-tighter uppercase italic">Avinya Code</span>
         </div>
         <button 
-          onClick={() => onLogin('Harshal_COE')}
+          onClick={() => onLogin('Harshal')}
           className="px-6 py-2.5 rounded-xl bg-white text-dark-900 font-bold text-sm hover:bg-hindsight-green transition-all shadow-lg shadow-white/5"
         >
           Sign In
